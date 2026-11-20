@@ -2,7 +2,7 @@
 # 各 docker 主機上的 Alloy 會把指標推到 Prometheus (:9090/api/v1/write)、log 推到 Loki (:3100)
 services:
   prometheus:
-    image: prom/prometheus:v3.16.0
+    image: prom/prometheus:v3.5.5
     container_name: prometheus
     restart: unless-stopped
     command:

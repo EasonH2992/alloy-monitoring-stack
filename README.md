@@ -107,7 +107,7 @@ docker logs --tail 20 alloy   # 不應有持續出現的 level=error
 
   | 元件 | 映像 |
   |---|---|
-  | Prometheus | `prom/prometheus:v3.16.0` |
+  | Prometheus | `prom/prometheus:v3.5.5`（LTS 長期支援版本線：只出修正、不加新功能，升級頻率低） |
   | Loki | `grafana/loki:3.7.10` |
   | Grafana | `grafana/grafana:13.3.1` |
   | Alloy | `grafana/alloy:v1.22.0` |
