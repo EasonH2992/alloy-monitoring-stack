@@ -2,7 +2,7 @@
 # 各 docker 主機上的 Alloy 會把指標推到 Prometheus (:9090/api/v1/write)、log 推到 Loki (:3100)
 services:
   prometheus:
-    image: prom/prometheus:v3.5.0
+    image: prom/prometheus:v3.16.0
     container_name: prometheus
     restart: unless-stopped
     command:
@@ -18,7 +18,7 @@ services:
       - "9090:9090"
 
   loki:
-    image: grafana/loki:3.5.3
+    image: grafana/loki:3.7.10
     container_name: loki
     restart: unless-stopped
     command: -config.file=/etc/loki/loki.yml
@@ -29,7 +29,7 @@ services:
       - "3100:3100"
 
   grafana:
-    image: grafana/grafana:12.1.1
+    image: grafana/grafana:13.3.1
     container_name: grafana
     restart: unless-stopped
     environment:

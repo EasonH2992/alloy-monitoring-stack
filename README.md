@@ -103,7 +103,17 @@ docker logs --tail 20 alloy   # 不應有持續出現的 level=error
   absent_over_time(up{job="integrations/unix", host="app-server-01"}[5m])
   ```
   或對所有主機：`time() - max by (host) (timestamp(up{job="integrations/unix"})) > 120`（注意斷線超過 5 分鐘後 series 會消失，用前者較可靠）。
-- **版本**：映像版本都已固定（`prom/prometheus:v3.5.0`、`grafana/loki:3.5.3`、`grafana/grafana:12.1.1`、`grafana/alloy:v1.10.1`），升級時一次改一個並確認。
+- **版本**：映像版本都已固定，不用 `latest`（避免兩台裝到不同版本、或在不知情下跳大版本）。目前版本（2026-11 驗證過）：
+
+  | 元件 | 映像 |
+  |---|---|
+  | Prometheus | `prom/prometheus:v3.16.0` |
+  | Loki | `grafana/loki:3.7.10` |
+  | Grafana | `grafana/grafana:13.3.1` |
+  | Alloy | `grafana/alloy:v1.22.0` |
+
+  升級流程：改 compose 的版本號 → 先在測試環境 `docker compose pull && docker compose up -d` → 看 log 有沒有 error / deprecated、dashboard 是否正常 → 再套到正式環境。
+  Grafana 跨大版本會遷移內部資料庫、**無法降版**，升級前先備份 `grafana-data` volume。
 - **Grafana 資料**：dashboard 由檔案 provision，UI 上改的會存在 grafana-data volume；要永久保留請匯出 JSON 放回 `grafana/dashboards/`。
 
 ## 修改 dashboard

@@ -3,7 +3,7 @@
 services:
   # nginx 網頁伺服器：產生 access log / error log（404），以及網路流量
   web:
-    image: nginx:1.27-alpine
+    image: nginx:1.30-alpine
     container_name: demo-web
     restart: unless-stopped
     ports:
@@ -11,13 +11,13 @@ services:
 
   # Redis：一個「安靜」的服務，只有啟動時有幾行 log（含 WARNING）
   redis:
-    image: redis:7-alpine
+    image: redis:8-alpine
     container_name: demo-redis
     restart: unless-stopped
 
   # 流量產生器：每 2 秒對 web 打 5 個網址（其中 2 個不存在 → 404），自己不輸出 log
   traffic:
-    image: curlimages/curl:8.11.1
+    image: curlimages/curl:8.23.0
     container_name: demo-traffic
     restart: unless-stopped
     entrypoint: ["/bin/sh", "-c"]
@@ -33,7 +33,7 @@ services:
 
   # 假的應用程式：每秒輸出一行 log，依比例隨機 info 60% / debug 20% / warn 10% / error 10%（error 走 stderr）
   app:
-    image: busybox:1.37
+    image: busybox:1.38
     container_name: demo-app
     restart: unless-stopped
     command:
