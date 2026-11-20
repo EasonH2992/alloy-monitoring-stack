@@ -1,0 +1,36 @@
+# 每台被監控的 docker 主機跑一份：只有一個 Alloy
+#   - 指標：內建 unix(node-exporter) + cadvisor exporter → remote_write 推到 Prometheus
+#   - Log ：docker 容器 log + systemd journal → Loki
+services:
+  alloy:
+    image: grafana/alloy:v1.10.1
+    container_name: alloy
+    restart: unless-stopped
+    privileged: true          # cadvisor 需要
+    pid: host                 # unix exporter 看得到宿主機行程
+    network_mode: host        # unix exporter 讀到宿主機網卡（而非容器自己的 veth）；Alloy UI 在 :12345
+    command:
+      - run
+      - --server.http.listen-addr=0.0.0.0:12345
+      - --storage.path=/var/lib/alloy/data
+      - /etc/alloy/config.alloy
+    environment:
+      HOST_NAME: ${HOST_NAME:?請在 .env 設定}
+      LOKI_URL: ${LOKI_URL:?請在 .env 設定}
+      PROM_URL: ${PROM_URL:?請在 .env 設定}
+    volumes:
+      - ./config.alloy:/etc/alloy/config.alloy:ro
+      - alloy-data:/var/lib/alloy/data
+      # docker log 與 cadvisor
+      - /var/run/docker.sock:/var/run/docker.sock:ro
+      - /var/lib/docker:/var/lib/docker:ro
+      # unix exporter (node-exporter)
+      - /:/host:ro,rslave
+      - /sys:/sys:ro
+      # journald（主機沒有其中某個目錄時，先 mkdir 建空目錄即可）
+      - /var/log/journal:/var/log/journal:ro
+      - /run/log/journal:/run/log/journal:ro
+      - /etc/machine-id:/etc/machine-id:ro
+
+volumes:
+  alloy-data:

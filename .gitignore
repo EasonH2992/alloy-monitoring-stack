@@ -1,0 +1,4 @@
+# 實際設定（含密碼 / IP），只提交 .env.example
+.env
+*.log
+__pycache__/

@@ -1,0 +1,52 @@
+# 選用：範例服務，用來確認監控有沒有在動（裝在任一台 docker-host 上）
+# 不需要時：docker compose down
+services:
+  # nginx 網頁伺服器：產生 access log / error log（404），以及網路流量
+  web:
+    image: nginx:1.27-alpine
+    container_name: demo-web
+    restart: unless-stopped
+    ports:
+      - "${DEMO_WEB_PORT:-8088}:80"   # 主機 port，預設 8088，避免跟公司既有服務的 80 衝突
+
+  # Redis：一個「安靜」的服務，只有啟動時有幾行 log（含 WARNING）
+  redis:
+    image: redis:7-alpine
+    container_name: demo-redis
+    restart: unless-stopped
+
+  # 流量產生器：每 2 秒對 web 打 5 個網址（其中 2 個不存在 → 404），自己不輸出 log
+  traffic:
+    image: curlimages/curl:8.11.1
+    container_name: demo-traffic
+    restart: unless-stopped
+    entrypoint: ["/bin/sh", "-c"]
+    command:
+      - |
+        while true; do
+          for p in / /index.html /api/users /notfound /favicon.ico; do
+            curl -s -o /dev/null http://web$$p
+          done
+          sleep 2
+        done
+    depends_on: [web]
+
+  # 假的應用程式：每秒輸出一行 log，依比例隨機 info 60% / debug 20% / warn 10% / error 10%（error 走 stderr）
+  app:
+    image: busybox:1.37
+    container_name: demo-app
+    restart: unless-stopped
+    command:
+      - sh
+      - -c
+      - |
+        i=0
+        while true; do
+          i=$$((i+1))
+          r=$$(( $$(od -An -N1 -tu1 /dev/urandom) % 10 ))
+          if [ $$r -lt 6 ]; then echo "level=info msg=\"handled request\" id=$$i";
+          elif [ $$r -lt 8 ]; then echo "level=debug msg=\"cache lookup\" id=$$i";
+          elif [ $$r -lt 9 ]; then echo "level=warn msg=\"slow query\" id=$$i";
+          else echo "level=error msg=\"upstream timeout\" id=$$i" >&2; fi
+          sleep 1
+        done

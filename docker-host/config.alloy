@@ -1,0 +1,163 @@
+// ============================================================
+//  All-in-one Alloy：指標 + 容器 log + 系統 log
+// ============================================================
+
+// ---------------- 輸出 ----------------
+
+loki.write "default" {
+  endpoint {
+    url = sys.env("LOKI_URL")
+  }
+}
+
+prometheus.remote_write "default" {
+  endpoint {
+    url = sys.env("PROM_URL")
+  }
+  // 所有指標都加上 host，對應 dashboard 的「宿主機」變數
+  external_labels = { host = sys.env("HOST_NAME") }
+}
+
+// ---------------- 指標 ----------------
+
+// 取代 node-exporter
+prometheus.exporter.unix "host" {
+  procfs_path = "/host/proc"   // 宿主機的 /proc（實體機 = 主機本身；LXC 內 = lxcfs 虛擬化過的值）
+  sysfs_path  = "/host/sys"
+  rootfs_path = "/host"
+  // 實體機才有 udev：提供磁碟型號、序號等資訊（LXC 沒有這個目錄，會出現一行 warning，可忽略）
+  udev_data_path = "/host/run/udev/data"
+
+  filesystem {
+    mount_points_exclude = "^/(dev|proc|sys|run|var/lib/docker/.+)($|/)"
+  }
+}
+
+// 取代 cAdvisor
+prometheus.exporter.cadvisor "containers" {
+  docker_host                  = "unix:///var/run/docker.sock"
+  docker_only                  = true
+  store_container_labels       = false
+  allowlisted_container_labels = ["com.docker.compose.project", "com.docker.compose.service"]
+}
+
+// Alloy 自己的健康狀態
+prometheus.exporter.self "alloy" { }
+
+prometheus.scrape "local" {
+  targets = array.concat(
+    prometheus.exporter.unix.host.targets,
+    prometheus.exporter.cadvisor.containers.targets,
+    prometheus.exporter.self.alloy.targets,
+  )
+  scrape_interval = "15s"
+  forward_to      = [prometheus.relabel.fix_host.receiver]
+}
+
+// loki_write_* 指標自帶 host="<Loki 位址>"，external_labels 不會覆蓋既有 label，
+// 所以先把它改名成 loki_endpoint，再填入本機名稱
+prometheus.relabel "fix_host" {
+  forward_to = [prometheus.remote_write.default.receiver]
+
+  rule {
+    source_labels = ["__name__", "host"]
+    regex         = "loki_write_.+;(.+)"
+    target_label  = "loki_endpoint"
+  }
+  rule {
+    source_labels = ["__name__"]
+    regex         = "loki_write_.+"
+    target_label  = "host"
+    replacement   = sys.env("HOST_NAME")
+  }
+}
+
+// ---------------- 容器 log ----------------
+
+discovery.docker "containers" {
+  host             = "unix:///var/run/docker.sock"
+  refresh_interval = "10s"
+}
+
+discovery.relabel "containers" {
+  targets = []
+
+  rule {
+    source_labels = ["__meta_docker_container_name"]
+    regex         = "/(.*)"
+    target_label  = "container"
+  }
+  rule {
+    source_labels = ["__meta_docker_container_label_com_docker_compose_project"]
+    target_label  = "compose_project"
+  }
+  rule {
+    source_labels = ["__meta_docker_container_label_com_docker_compose_service"]
+    target_label  = "compose_service"
+  }
+  rule {
+    source_labels = ["__meta_docker_container_log_stream"]
+    target_label  = "stream"
+  }
+}
+
+loki.source.docker "containers" {
+  host          = "unix:///var/run/docker.sock"
+  targets       = discovery.docker.containers.targets
+  relabel_rules = discovery.relabel.containers.rules
+  labels        = { host = sys.env("HOST_NAME"), job = "docker" }
+  forward_to    = [loki.process.level.receiver]
+}
+
+// 抓出 log level 並正規化
+loki.process "level" {
+  stage.regex {
+    expression = "(?i)\\b(?P<level>trace|debug|info|notice|warn|warning|error|err|crit|critical|fatal|panic)\\b"
+  }
+  stage.template {
+    source   = "level"
+    template = `{{ $l := ToLower .Value }}{{ if eq $l "warning" }}warn{{ else if eq $l "err" }}error{{ else if eq $l "critical" }}crit{{ else }}{{ $l }}{{ end }}`
+  }
+  stage.labels {
+    values = { level = "" }
+  }
+  forward_to = [loki.write.default.receiver]
+}
+
+// ---------------- 系統 log (systemd journal) ----------------
+
+loki.relabel "journal" {
+  forward_to = []
+
+  rule {
+    source_labels = ["__journal__systemd_unit"]
+    target_label  = "unit"
+  }
+  rule {
+    source_labels = ["__journal_syslog_identifier"]
+    target_label  = "identifier"
+  }
+  rule {
+    source_labels = ["__journal_priority_keyword"]
+    target_label  = "level"
+  }
+}
+
+loki.source.journal "system" {
+  max_age       = "12h"
+  relabel_rules = loki.relabel.journal.rules
+  labels        = { job = "journal", host = sys.env("HOST_NAME") }
+  forward_to    = [loki.process.journal_level.receiver]
+}
+
+// journal 的 priority 也統一成 warn / error / crit
+loki.process "journal_level" {
+  stage.template {
+    source   = "level"
+    template = `{{ $l := .Value }}{{ if eq $l "warning" }}warn{{ else if eq $l "err" }}error{{ else if or (eq $l "emerg") (eq $l "alert") }}crit{{ else }}{{ $l }}{{ end }}`
+  }
+  stage.labels {
+    values = { level = "" }
+  }
+  forward_to = [loki.write.default.receiver]
+}
